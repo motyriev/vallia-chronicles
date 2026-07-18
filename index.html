@@ -2044,8 +2044,7 @@ function timelineHTML(items){
         ${e.sub ? `<div class="d">${esc(e.sub)}</div>` : ""}
       </a>
     </div>`;
-  let out = `<div class="tl-note">Летописи описывают покорение Севера и в XIII столетии, и в XV — но «Хроника великих походов» примиряет редакции: восстание 1315 года вспыхнуло «после ста лет оккупации». Север пал, век жил под Валлией, восстал, возродился — и пал вновь. Расхождения дат помечены на карточках событий.</div>`;
-  out += `<div class="tl">` + roseSVG("") + dated.map(one).join("") + roseSVG("end") + `</div>`;
+  let out = `<div class="tl">` + roseSVG("") + dated.map(one).join("") + roseSVG("end") + `</div>`;
   if (undated.length){
     out += `<div class="tl-undated">Летописи дат не сохранили</div>`;
     out += `<div class="tl">` + undated.map(one).join("") + `</div>`;
