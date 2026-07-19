@@ -306,6 +306,44 @@ footer a:hover{color:var(--gold-hi);border-bottom-color:var(--gold-dim)}
 
 .empty{color:var(--muted);font-style:italic;padding:20px 0}
 
+/* ── режим летописца ── */
+.adm label{display:block;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--gold-dim);margin-top:12px}
+.adm input,.adm textarea,.adm select{
+  width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--parch);
+  font:inherit;font-size:14.5px;padding:8px 11px;margin-top:5px;border-radius:2px;
+}
+.adm input:focus,.adm textarea:focus,.adm select:focus{outline:none;border-color:var(--gold)}
+.adm textarea{min-height:96px;resize:vertical}
+.adm .hint{font-size:12px;color:var(--muted);margin-top:3px;font-style:italic}
+.btn{
+  display:inline-block;border:1px solid var(--gold-dim);background:var(--panel);
+  color:var(--gold-hi);font:inherit;font-size:13.5px;padding:8px 16px;cursor:pointer;
+  letter-spacing:.06em;margin:14px 8px 0 0;
+}
+.btn:hover{border-color:var(--gold)}
+.btn.danger{color:#c05e50;border-color:rgba(140,47,38,.5)}
+.btn.danger:hover{border-color:var(--blood)}
+.adm-set{border:1px solid var(--line-soft);background:var(--panel);padding:14px 16px;margin-bottom:22px}
+.adm-set summary{cursor:pointer;color:var(--gold);letter-spacing:.12em;text-transform:uppercase;font-size:12.5px}
+.adm-rows a{display:flex;justify-content:space-between;gap:10px;padding:9px 12px;border:1px solid var(--line-soft);margin-bottom:6px;color:var(--gold-hi);font-size:15px}
+.adm-rows a:hover{border-color:var(--gold)}
+.adm-rows .sec-h{margin:18px 0 8px;font-size:11.5px;letter-spacing:.24em;text-transform:uppercase;color:var(--gold-dim)}
+#admin-status{margin-top:14px;padding:10px 14px;border:1px dashed var(--line);color:var(--parch);font-size:14px;min-height:20px}
+.adm-flag{color:#c05e50;font-size:13px;font-style:italic;margin-bottom:14px}
+#preview-bar{
+  position:fixed;left:0;right:0;bottom:0;z-index:50;
+  display:flex;align-items:center;justify-content:center;gap:16px;
+  background:rgba(20,12,8,.97);border-top:1px solid var(--blood);
+  padding:10px 14px;font-size:13.5px;color:var(--gold-hi);letter-spacing:.04em;
+}
+#preview-bar button{
+  border:1px solid var(--gold-dim);background:var(--panel);color:var(--gold-hi);
+  font:inherit;font-size:13px;padding:5px 14px;cursor:pointer;
+}
+#preview-bar button:hover{border-color:var(--gold)}
+.adm-link{opacity:.55;margin-left:10px}
+.adm-link:hover{opacity:1}
+
 /* ── мобильная вёрстка ── */
 @media (max-width:620px){
   body{font-size:16px}
@@ -347,7 +385,7 @@ footer a:hover{color:var(--gold-hi);border-bottom-color:var(--gold-dim)}
   </header>
   <nav class="topnav" id="topnav" aria-label="Разделы архива"></nav>
   <main id="app"></main>
-  <footer>Летописи хранят все редакции · архив собран по каналу <a href="https://t.me/Gettrenna" target="_blank" rel="noopener">«Семейное древо»</a></footer>
+  <footer>Летописи хранят все редакции · архив собран по каналу <a href="https://t.me/Gettrenna" target="_blank" rel="noopener">«Семейное древо»</a><a class="adm-link" id="adm-entry" href="#/admin" title="Режим летописца" style="display:none">✎</a></footer>
 </div>
 
 <script type="application/json" id="bestiary-data">
@@ -1847,18 +1885,22 @@ footer a:hover{color:var(--gold-hi);border-bottom-color:var(--gold-dim)}
    Изображения — в блоке #bestiary-images (ключ → base64).
    ═══════════════════════════════════════════════════════════════ */
 
-const DATA = JSON.parse(document.getElementById("bestiary-data").textContent);
-const IMGS = JSON.parse(document.getElementById("bestiary-images").textContent);
+const PUB_DATA = JSON.parse(document.getElementById("bestiary-data").textContent);
+const PUB_IMGS = JSON.parse(document.getElementById("bestiary-images").textContent);
+let DATA = PUB_DATA;
+let IMGS = PUB_IMGS;
 const app  = document.getElementById("app");
 
-const byId = {};
-DATA.entries.forEach(e => byId[e.id] = e);
-
-/* обратные упоминания: кто ссылается на запись */
-const inbound = {};
-DATA.entries.forEach(e => (e.links||[]).forEach(l => {
-  (inbound[l.to] = inbound[l.to] || []).push(e.id);
-}));
+let byId = {}, inbound = {};
+function rebuildIndex(){
+  byId = {}; inbound = {};
+  DATA.entries.forEach(e => byId[e.id] = e);
+  /* обратные упоминания: кто ссылается на запись */
+  DATA.entries.forEach(e => (e.links||[]).forEach(l => {
+    (inbound[l.to] = inbound[l.to] || []).push(e.id);
+  }));
+}
+rebuildIndex();
 
 const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
@@ -1961,6 +2003,8 @@ function crumbs(parts){
 function render(){
   const h = location.hash || "#/";
   window.scrollTo(0,0);
+  if (h.startsWith("#/setup")) return adminSetup(h);
+  if (h === "#/admin" || h.startsWith("#/admin/")) { setNav("§none§"); return renderAdmin(h); }
   if (h.startsWith("#/s/"))      renderSection(h.slice(4));
   else if (h.startsWith("#/e/")) renderEntry(h.slice(4));
   else                           renderHome();
@@ -2147,6 +2191,416 @@ function renderEntry(id){
     </div></article>`;
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   РЕЖИМ ЛЕТОПИСЦА — правка записей прямо в браузере.
+   Черновик хранится в localStorage; публикация коммитит index.html
+   в ваш репозиторий через GitHub API (нужен токен с правом contents:write).
+   ═══════════════════════════════════════════════════════════════ */
+const LS = {
+  get(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } },
+  set(k,v){ try{ localStorage.setItem(k,v); }catch(e){} },
+  del(k){ try{ localStorage.removeItem(k); }catch(e){} }
+};
+const clone = o => (typeof structuredClone === "function") ? structuredClone(o) : JSON.parse(JSON.stringify(o));
+let DRAFT = null;
+function draftInit(){
+  if (DRAFT) return;
+  const saved = LS.get("fd-draft");
+  if (saved){ try{ DRAFT = JSON.parse(saved); }catch(e){ DRAFT = null; } }
+  if (!DRAFT || !DRAFT.data) DRAFT = { data: clone(DATA), imgs: {} };
+}
+function draftSave(){ LS.set("fd-draft", JSON.stringify(DRAFT)); }
+function draftDirty(){ return JSON.stringify(DRAFT.data) !== JSON.stringify(PUB_DATA) || Object.keys(DRAFT.imgs).length > 0; }
+window.draftReset = function(){
+  if (!confirm("Сбросить черновик к опубликованной версии?")) return;
+  DRAFT = { data: clone(DATA), imgs: {} }; draftSave(); renderAdmin("#/admin");
+};
+function adminMsg(m){ const el = document.getElementById("admin-status"); if (el) el.textContent = m; }
+
+function ghRead(){
+  return {
+    owner:  (document.getElementById("gh-owner")||{}).value ?? LS.get("fd-gh-owner") ?? "",
+    repo:   (document.getElementById("gh-repo")||{}).value ?? LS.get("fd-gh-repo") ?? "",
+    branch: (document.getElementById("gh-branch")||{}).value || LS.get("fd-gh-branch") || "main",
+    path:   (document.getElementById("gh-path")||{}).value || LS.get("fd-gh-path") || "index.html",
+    token:  (document.getElementById("gh-token")||{}).value ?? LS.get("fd-gh-token") ?? ""
+  };
+}
+window.adminCfgSave = function(){
+  const c = ghRead();
+  LS.set("fd-gh-owner", c.owner); LS.set("fd-gh-repo", c.repo);
+  LS.set("fd-gh-branch", c.branch); LS.set("fd-gh-path", c.path); LS.set("fd-gh-token", c.token);
+};
+
+/* ── главный экран админки ── */
+/* ── настройка доступа по ссылке (для тех, кто не знает про GitHub) ── */
+function adminSetup(h){
+  const q = h.split("?")[1] || "";
+  const p = new URLSearchParams(q);
+  ["owner","repo","branch","path","token"].forEach(k => {
+    const v = p.get(k);
+    if (v) LS.set("fd-gh-" + k, v);
+  });
+  /* подчищаю токен из адресной строки и истории */
+  history.replaceState(null, "", location.pathname + "#/admin");
+  admEntryShow();
+  render();
+}
+function admEntryShow(){
+  const a = document.getElementById("adm-entry");
+  if (a && LS.get("fd-gh-token")) a.style.display = "";
+}
+window.adminSetupLink = function(){
+  adminCfgSave();
+  const c = ghRead();
+  if (!(c.owner && c.repo && c.token)) return adminMsg("Сначала заполните владельца, репозиторий и токен.");
+  const url = location.origin + location.pathname + "#/setup?" +
+    new URLSearchParams({ owner: c.owner, repo: c.repo, branch: c.branch, path: c.path, token: c.token });
+  const done = () => adminMsg("✦ Ссылка скопирована. Отправьте ей в личных сообщениях, попросите открыть один раз — и удалите ссылку из переписки: в ней токен.");
+  if (navigator.clipboard && navigator.clipboard.writeText)
+    navigator.clipboard.writeText(url).then(done, () => adminMsg(url));
+  else adminMsg(url);
+};
+
+function renderAdmin(h){
+  draftInit();
+  if (h.startsWith("#/admin/e/")) return adminForm(h.slice(10));
+  if (h === "#/admin/new")        return adminForm(null);
+  const c = {
+    owner: LS.get("fd-gh-owner")||"", repo: LS.get("fd-gh-repo")||"",
+    branch: LS.get("fd-gh-branch")||"main", path: LS.get("fd-gh-path")||"index.html",
+    token: LS.get("fd-gh-token")||""
+  };
+  const rows = DATA.sections.map(s => {
+    const items = DRAFT.data.entries.filter(e => e.section === s.id);
+    return `<div class="sec-h">${ICONS[s.id]||"✦"} ${esc(s.title)} — ${items.length}</div>` +
+      items.map(e => `<a href="#/admin/e/${e.id}"><span>${esc(e.title)}</span><span style="color:var(--gold-dim)">править ›</span></a>`).join("");
+  }).join("");
+  const cfgOk = !!(c.owner && c.repo && c.token);
+  app.innerHTML = `
+    <div class="pagebar">${crumbs([{href:"#/",label:"Архив"},{label:"Режим летописца"}])}</div>
+    <h2 class="list-title">✎ Режим летописца</h2>
+    <p class="list-sub">правки живут в черновике этого браузера, пока не опубликованы</p>
+    ${draftDirty() ? `<p class="adm-flag">※ В черновике есть неопубликованные правки.</p>` : ""}
+    <div class="adm">
+      ${cfgOk ? `<div class="hint" id="gh-hidden-note" style="margin-bottom:10px">Публикация настроена — кнопка «Опубликовать» отправит правки на сайт. <a href="#" onclick="var d=document.getElementById('gh-set');d.style.display='';d.open=true;document.getElementById('gh-hidden-note').style.display='none';return false">Показать настройки</a></div>` : ""}
+      <details class="adm-set" id="gh-set" ${cfgOk ? `style="display:none"` : "open"}>
+        <summary>Публикация на GitHub</summary>
+        <label>Владелец (owner)</label><input id="gh-owner" value="${esc(c.owner)}" oninput="adminCfgSave()" autocomplete="off">
+        <label>Репозиторий</label><input id="gh-repo" value="${esc(c.repo)}" oninput="adminCfgSave()" autocomplete="off">
+        <label>Ветка</label><input id="gh-branch" value="${esc(c.branch)}" oninput="adminCfgSave()" autocomplete="off">
+        <label>Путь к файлу</label><input id="gh-path" value="${esc(c.path)}" oninput="adminCfgSave()" autocomplete="off">
+        <label>Токен (fine-grained, право contents: write на этот репозиторий)</label>
+        <input id="gh-token" type="password" value="${esc(c.token)}" oninput="adminCfgSave()" autocomplete="off">
+        <label>Сообщение коммита</label><input id="gh-msg" value="обновление летописей" autocomplete="off">
+        <div class="hint">Токен хранится только в этом браузере — в страницу и репозиторий он не попадает. Кнопка ниже соберёт ссылку-настройку: человек открывает её один раз, доступ сохраняется у него в браузере, и вся эта панель ему больше не показывается.</div>
+        <button class="btn" onclick="adminSetupLink()">Создать ссылку настройки</button>
+      </details>
+      <button class="btn" onclick="location.hash='#/admin/new'">＋ Новая запись</button>
+      <button class="btn" onclick="adminPreview()">Предпросмотр черновика</button>
+      <button class="btn" onclick="adminValidate()">Проверить связи</button>
+      <button class="btn" onclick="adminDownload()">Скачать index.html</button>
+      <button class="btn" onclick="adminPublish()">✦ Опубликовать</button>
+      <button class="btn danger" onclick="draftReset()">Сбросить черновик</button>
+      <div id="admin-status"></div>
+      <div class="adm-rows" style="margin-top:20px">${rows}</div>
+    </div>`;
+}
+
+/* ── форма записи ── */
+/* поля и подписи формы зависят от раздела */
+const FORM_CONF = {
+  characters: { sub:["Титул / эпитет","напр. «Герцог Севера, создатель семи лабораторий»"], years:["Годы жизни","напр. 1285–1337 — можно пусто"], img:"Портрет", epi:true, vers:true },
+  factions:   { sub:["Характеристика","напр. «Военная машина Западного континента»"],       years:["Годы","напр. «с 1219» — можно пусто"],        img:"Изображение", epi:true, vers:true },
+  orders:     { sub:["Прозвание","напр. «Воины без лиц»"],                                   years:["Годы существования","напр. 1315–1357 — можно пусто"], img:"Изображение / герб", epi:true, vers:true },
+  locations:  { sub:["Характер места","напр. «Белокаменная жемчужина древнего мира»"],       years:["Основание / годы","напр. «основан в конце IV века» — можно пусто"], img:"Изображение", epi:true, vers:true },
+  heraldry:   { sub:["Краткое описание герба","напр. «Белая лиса и меч на чёрном поле»"],    years:null, img:"Изображение герба", epi:false, vers:false },
+  chronicle:  { sub:["Строка в ленте","короткое пояснение под названием события"],           years:null, img:"Иллюстрация события", epi:false, vers:true }
+};
+function adminForm(id){
+  const e = id ? DRAFT.data.entries.find(x => x.id === id) : null;
+  if (id && !e) return renderAdmin("#/admin");
+  const v = e || { id:"", section:"characters", title:"", sub:"", years:"", yearLabel:"", yearSort:null,
+                   image:null, epigraph:null, body:[], notes:[], versions:[], links:[], participants:[] };
+  const blocks = a => (a||[]).join("\n\n");
+  const versTxt = (v.versions||[]).map(x => [x.topic, ...x.readings].join("\n")).join("\n\n");
+  const linksTxt = (v.links||[]).map(l => l.to + (l.rel ? " | " + l.rel : "")).join("\n");
+  const imgKeys = [...new Set([...Object.keys(IMGS), ...Object.keys(DRAFT.imgs)])];
+  const imgOpts = [`<option value="">— без изображения —</option>`,
+    `<option value="svg:cult" ${v.image==="svg:cult"?"selected":""}>svg:cult (эмблема культа)</option>`,
+    ...imgKeys.map(k => `<option value="${esc(k)}" ${v.image===k?"selected":""}>${esc(k)}${DRAFT.imgs[k]?" (новое)":""}</option>`)].join("");
+  const secOpts = DATA.sections.map(s => `<option value="${s.id}" ${v.section===s.id?"selected":""}>${esc(s.title)}</option>`).join("");
+  const hasExtra = !!(v.epigraph || (v.notes||[]).length || (v.versions||[]).length || (v.links||[]).length);
+  app.innerHTML = `
+    <div class="pagebar">
+      <button class="back-btn" onclick="location.hash='#/admin'">‹ К списку</button>
+      ${crumbs([{href:"#/admin",label:"Режим летописца"},{label: id ? v.title : "Новая запись"}])}
+    </div>
+    <div class="adm">
+      <label>Раздел</label><select id="af-section" onchange="adminFormMode()">${secOpts}</select>
+      <label>Название</label><input id="af-title" value="${esc(v.title||"")}">
+      <label id="fg-sub-label">Подзаголовок</label><input id="af-sub" value="${esc(v.sub||"")}">
+      <div id="fg-years">
+        <label id="fg-years-label">Годы</label><input id="af-years" value="${esc(v.years||"")}">
+      </div>
+      <div id="fg-chron">
+        <label>Дата в ленте</label><input id="af-yearlabel" value="${esc(v.yearLabel||"")}" placeholder="как показать: «1315–1321», «16 июля 1217»">
+        <label>Год для сортировки</label><input id="af-yearsort" value="${v.yearSort==null?"":v.yearSort}" placeholder="одно число, напр. 1315; пусто — «летописи дат не сохранили»">
+        <label>Участники</label><input id="af-participants" value="${esc((v.participants||[]).join(", "))}" placeholder="id записей через запятую: dagar, north">
+      </div>
+      <label id="fg-image-label">Изображение</label><select id="af-image">${imgOpts}</select>
+      <input type="file" accept="image/*" onchange="adminUpload(this)">
+      <div id="af-imgpreview" style="margin-top:6px"></div>
+      <label>Текст</label>
+      <div class="hint">Абзацы разделяются пустой строкой; одиночный перенос — для стихов.</div>
+      <textarea id="af-body" style="min-height:220px">${esc(blocks(v.body))}</textarea>
+      <details class="adm-set" style="margin-top:18px" ${hasExtra?"open":""}>
+        <summary>Дополнительно — эпиграф, пометки, связи…</summary>
+        <div id="fg-epi">
+          <label>Эпиграф — текст</label><textarea id="af-epi" style="min-height:56px">${esc(v.epigraph?v.epigraph.t:"")}</textarea>
+          <label>Эпиграф — подпись</label><input id="af-episrc" value="${esc(v.epigraph?v.epigraph.s||"":"")}">
+        </div>
+        <label>Пометки летописца</label>
+        <div class="hint">Каждая пометка — отдельным абзацем через пустую строку.</div>
+        <textarea id="af-notes">${esc(blocks(v.notes))}</textarea>
+        <div id="fg-versions">
+          <label>Редакции летописи</label>
+          <div class="hint">Блок: первая строка — тема, дальше — прочтения; блоки через пустую строку.</div>
+          <textarea id="af-versions">${esc(versTxt)}</textarea>
+        </div>
+        <label>Связи</label>
+        <div class="hint">По строке: id | подпись. Напр.: jagellona | союзница</div>
+        <textarea id="af-links">${esc(linksTxt)}</textarea>
+        <label>id записи</label><input id="af-id" value="${esc(v.id)}" ${id?"readonly":""} placeholder="пусто — соберётся из названия сам">
+      </details>
+      <button class="btn" onclick="adminSaveEntry(${id?`'${id}'`:"null"})">Сохранить в черновик</button>
+      ${id ? `<button class="btn danger" onclick="adminDelete('${id}')">Удалить запись</button>` : ""}
+      <div id="admin-status"></div>
+    </div>`;
+  adminFormMode();
+}
+window.adminFormMode = function(){
+  const sec = document.getElementById("af-section").value;
+  const c = FORM_CONF[sec] || FORM_CONF.characters;
+  const chron = sec === "chronicle";
+  const show = (id, on) => { document.getElementById(id).style.display = on ? "" : "none"; };
+  show("fg-chron", chron);
+  show("fg-years", !!c.years);
+  if (c.years){
+    document.getElementById("fg-years-label").textContent = c.years[0];
+    document.getElementById("af-years").placeholder = c.years[1];
+  }
+  document.getElementById("fg-sub-label").textContent = c.sub[0];
+  document.getElementById("af-sub").placeholder = c.sub[1];
+  document.getElementById("fg-image-label").textContent = c.img;
+  show("fg-epi", c.epi);
+  show("fg-versions", c.vers);
+};
+function slugify(s){
+  const m = {"а":"a","б":"b","в":"v","г":"g","д":"d","е":"e","ё":"e","ж":"zh","з":"z","и":"i","й":"y","к":"k","л":"l","м":"m","н":"n","о":"o","п":"p","р":"r","с":"s","т":"t","у":"u","ф":"f","х":"h","ц":"ts","ч":"ch","ш":"sh","щ":"sch","ъ":"","ы":"y","ь":"","э":"e","ю":"yu","я":"ya"};
+  return s.toLowerCase().split("").map(c => m[c] !== undefined ? m[c] : c).join("")
+    .replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0, 40) || "zapis";
+}
+
+window.adminUpload = function(inp){
+  const f = inp.files && inp.files[0]; if (!f) return;
+  const img = new Image();
+  img.onload = () => {
+    const max = 800, sc = Math.min(1, max / Math.max(img.width, img.height));
+    const c = document.createElement("canvas");
+    c.width = Math.round(img.width * sc); c.height = Math.round(img.height * sc);
+    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+    const url = c.toDataURL("image/jpeg", .78);
+    let key = slugify((f.name || "").replace(/\.[^.]+$/, "")) || "img";
+    const taken = k => PUB_IMGS[k] !== undefined || DRAFT.imgs[k] !== undefined;
+    if (taken(key)){ const base = key; let n = 2; while (taken(key)) key = base + "-" + (n++); }
+    draftInit(); DRAFT.imgs[key] = url; draftSave();
+    const sel = document.getElementById("af-image");
+    const o = document.createElement("option");
+    o.value = key; o.textContent = key + " (новое)"; sel.appendChild(o); sel.value = key;
+    document.getElementById("af-imgpreview").innerHTML =
+      `<img src="${url}" alt="" style="max-width:120px;border:1px solid var(--gold-dim)">`;
+    URL.revokeObjectURL(img.src);
+  };
+  img.src = URL.createObjectURL(f);
+};
+
+window.adminSaveEntry = function(origId){
+  draftInit();
+  const g = i => document.getElementById(i).value;
+  const title = g("af-title").trim();
+  if (!title) return adminMsg("Дайте записи название.");
+  let id = g("af-id").trim();
+  if (!id && !origId){
+    id = slugify(title);
+    let base = id, n = 2;
+    while (DRAFT.data.entries.some(x => x.id === id)) id = base + "-" + (n++);
+  }
+  if (origId) id = origId;
+  if (!/^[a-z0-9-]+$/.test(id)) return adminMsg("id: только строчная латиница, цифры и дефис.");
+  if (id !== origId && DRAFT.data.entries.some(x => x.id === id)) return adminMsg("Такой id уже занят.");
+  const chron = g("af-section") === "chronicle";
+  const blocks = s => s.split(/\n\s*\n/).map(x => x.replace(/^\s+|\s+$/g,"")).filter(Boolean);
+  const ys = g("af-yearsort").trim();
+  const epi = g("af-epi").trim();
+  const entry = {
+    id, section: g("af-section"),
+    title,
+    sub: g("af-sub").trim() || null,
+    years: chron ? null : (g("af-years").trim() || null),
+    yearLabel: chron ? (g("af-yearlabel").trim() || null) : null,
+    yearSort: chron ? (ys === "" ? null : (isNaN(+ys) ? null : +ys)) : null,
+    image: g("af-image") || null,
+    epigraph: epi ? { t: epi, s: g("af-episrc").trim() || null } : null,
+    body: blocks(g("af-body")),
+    notes: blocks(g("af-notes")),
+    versions: blocks(g("af-versions")).map(b => {
+      const lines = b.split("\n").map(x => x.trim()).filter(Boolean);
+      return { topic: lines[0].replace(/^Тема:\s*/i, ""), readings: lines.slice(1) };
+    }).filter(x => x.readings.length),
+    links: g("af-links").split("\n").map(x => x.trim()).filter(Boolean).map(x => {
+      const i = x.indexOf("|");
+      return i >= 0 ? { to: x.slice(0, i).trim(), rel: x.slice(i + 1).trim() } : { to: x, rel: "" };
+    }),
+    participants: chron ? g("af-participants").split(/[,\s]+/).map(x => x.trim()).filter(Boolean) : []
+  };
+  const idx = origId ? DRAFT.data.entries.findIndex(x => x.id === origId) : -1;
+  if (idx >= 0) DRAFT.data.entries[idx] = entry; else DRAFT.data.entries.push(entry);
+  draftSave();
+  location.hash = "#/admin";
+};
+
+window.adminDelete = function(id){
+  if (!confirm("Удалить запись «" + id + "» из черновика?")) return;
+  draftInit();
+  DRAFT.data.entries = DRAFT.data.entries.filter(x => x.id !== id);
+  draftSave();
+  location.hash = "#/admin";
+};
+
+window.adminValidate = function(){
+  draftInit();
+  const ids = new Set(DRAFT.data.entries.map(x => x.id));
+  const errs = [];
+  DRAFT.data.entries.forEach(x => {
+    (x.links||[]).forEach(l => { if (!ids.has(l.to)) errs.push(x.id + ": битая связь → " + l.to); });
+    (x.participants||[]).forEach(p => { if (!ids.has(p)) errs.push(x.id + ": битый участник → " + p); });
+  });
+  adminMsg(errs.length ? "Ошибки: " + errs.join("; ") : "✦ Все связи целы (" + DRAFT.data.entries.length + " записей).");
+  return errs;
+};
+
+/* ── предпросмотр черновика ── */
+window.adminPreview = function(){
+  draftInit();
+  DATA = DRAFT.data;
+  IMGS = Object.assign({}, PUB_IMGS, DRAFT.imgs);
+  rebuildIndex();
+  previewBar(true);
+  if (location.hash === "#/" || !location.hash) render(); else location.hash = "#/";
+};
+window.adminPreviewExit = function(){
+  DATA = PUB_DATA; IMGS = PUB_IMGS;
+  rebuildIndex();
+  previewBar(false);
+  if (location.hash === "#/admin") render(); else location.hash = "#/admin";
+};
+function previewBar(on){
+  let b = document.getElementById("preview-bar");
+  if (on && !b){
+    b = document.createElement("div");
+    b.id = "preview-bar";
+    b.innerHTML = `<span>✎ Режим предпросмотра: так архив будет выглядеть после публикации</span><button onclick="adminPreviewExit()">Выйти из предпросмотра</button>`;
+    document.body.appendChild(b);
+  }
+  if (!on && b) b.remove();
+}
+
+/* ── сборка нового index.html ── */
+function adminBuildHTML(src){
+  const data = clone(DRAFT.data);
+  const merged = Object.assign({}, PUB_IMGS, DRAFT.imgs);
+  const used = new Set(data.entries.map(x => x.image));
+  const imgs = {};
+  for (const k in merged) if (used.has(k)) imgs[k] = merged[k];
+  const dj = JSON.stringify(data, null, 1).replace(/<\//g, "<\\/");
+  const ij = JSON.stringify(imgs).replace(/<\//g, "<\\/");
+  let html = src.replace(/(<script type="application\/json" id="bestiary-data">)[\s\S]*?(<\/script>)/,
+    (m, a, b) => a + "\n" + dj + "\n" + b);
+  html = html.replace(/(<script type="application\/json" id="bestiary-images">)[\s\S]*?(<\/script>)/,
+    (m, a, b) => a + "\n" + ij + "\n" + b);
+  return html;
+}
+function toB64(str){
+  const b = new TextEncoder().encode(str);
+  let s = ""; const CH = 0x8000;
+  for (let i = 0; i < b.length; i += CH) s += String.fromCharCode.apply(null, b.subarray(i, i + CH));
+  return btoa(s);
+}
+function fromB64(b64){
+  const bin = atob(b64.replace(/\s/g, ""));
+  const b = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) b[i] = bin.charCodeAt(i);
+  return new TextDecoder().decode(b);
+}
+
+/* исходник из самой страницы — для работы с диска без сети */
+function adminSelfSource(){
+  const root = document.documentElement.cloneNode(true);
+  const pb = root.querySelector("#preview-bar"); if (pb) pb.remove();
+  const appN = root.querySelector("#app");     if (appN) appN.innerHTML = "";
+  const navN = root.querySelector("#topnav");  if (navN) navN.innerHTML = "";
+  const adm = root.querySelector("#adm-entry");if (adm) adm.style.display = "none";
+  return "<!DOCTYPE html>\n" + root.outerHTML;
+}
+
+window.adminDownload = async function(){
+  draftInit(); adminCfgSave();
+  const errs = adminValidate(); if (errs.length) return;
+  let src = null;
+  try { const r = await fetch(location.pathname || "index.html", {cache:"no-store"}); if (r.ok) src = await r.text(); } catch(e){}
+  if (!src){
+    const c = ghRead();
+    if (c.owner && c.repo && c.token){
+      try {
+        const r = await fetch(`https://api.github.com/repos/${c.owner}/${c.repo}/contents/${encodeURIComponent(c.path)}?ref=${c.branch}`,
+          { headers: { Authorization: "Bearer " + c.token, Accept: "application/vnd.github+json" } });
+        if (r.ok) src = fromB64((await r.json()).content);
+      } catch(e){}
+    }
+  }
+  if (!src) src = adminSelfSource();
+  const blob = new Blob([adminBuildHTML(src)], { type: "text/html" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = "index.html"; a.click();
+  adminMsg("✦ Файл собран — закоммитьте его в репозиторий.");
+};
+
+window.adminPublish = async function(){
+  draftInit(); adminCfgSave();
+  const c = ghRead();
+  if (!(c.owner && c.repo && c.token)) return adminMsg("Заполните владельца, репозиторий и токен.");
+  const errs = adminValidate(); if (errs.length) return;
+  const api = `https://api.github.com/repos/${c.owner}/${c.repo}/contents/${encodeURIComponent(c.path)}`;
+  const h = { Authorization: "Bearer " + c.token, Accept: "application/vnd.github+json" };
+  try {
+    adminMsg("Забираю файл из репозитория…");
+    const g = await fetch(api + "?ref=" + c.branch, { headers: h });
+    if (!g.ok) return adminMsg("GitHub GET: " + g.status + (g.status === 401 ? " — проверьте токен" : g.status === 404 ? " — проверьте owner/repo/путь" : ""));
+    const j = await g.json();
+    const html = adminBuildHTML(fromB64(j.content));
+    adminMsg("Отправляю коммит…");
+    const msgEl = document.getElementById("gh-msg");
+    const put = await fetch(api, { method: "PUT", headers: h, body: JSON.stringify({
+      message: (msgEl && msgEl.value) || "обновление летописей",
+      content: toB64(html), sha: j.sha, branch: c.branch
+    })});
+    if (!put.ok) return adminMsg("GitHub PUT: " + put.status);
+    adminMsg("✦ Опубликовано. Pages пересоберётся за минуту-две — обновите страницу позже.");
+  } catch(e){ adminMsg("Ошибка сети: " + e.message); }
+};
+
+admEntryShow();
 render();
 </script>
 </body>
