@@ -45,10 +45,18 @@ def http(url, payload=None, headers=None, timeout=180):
 
 def tg(method, **kw):
     try:
-        return http(f"{TG_API}/{method}", kw, timeout=30)
+        r = http(f"{TG_API}/{method}", kw, timeout=30)
+        if method != "getUpdates":
+            print(f"[tg] {method}: ok={r.get('ok')}")
+        return r
     except Exception as e:  # телеграм упал — не роняем весь прогон
-        print(f"[tg] {method}: {e}", file=sys.stderr)
+        print(f"[tg] {method}: ОШИБКА {e}")
         return {"ok": False}
+
+
+def mask(x):
+    s = str(x)
+    return "…" + s[-4:] if len(s) > 4 else s
 
 
 def say(chat_id, text, buttons=None):
@@ -190,7 +198,9 @@ def preview_ops(ops):
 
 
 def handle_posts(chat_id, texts):
+    print(f"[дiag] разбор пачки: {len(texts)} текст(а) для чата {mask(chat_id)}")
     _, data = read_archive()
+    print(f"[дiag] архив прочитан: {len(data['entries'])} записей; зову OpenRouter ({MODEL})…")
     registry = "\n".join(
         f"{e['id']} | {e['section']} | {e['title']} | {e.get('years') or ''}"
         for e in data["entries"])
@@ -201,6 +211,7 @@ def handle_posts(chat_id, texts):
     except Exception as e:
         say(chat_id, f"Редактор не справился ({e}). Перешлите пост ещё раз позже.")
         return
+    print("[дiag] OpenRouter ответил")
     ops = [o for o in (resp.get("operations") or []) if isinstance(o, dict)]
     need = [o for o in ops if o.get("op") == "need_human"]
     real = [o for o in ops if o.get("op") in ("create", "append")]
@@ -273,26 +284,34 @@ def main():
         print("Новых сообщений нет.")
         return
 
+    print(f"[дiag] получено обновлений: {len(updates)}; разрешённые чаты: {[mask(a) for a in ALLOWED] or 'ВСЕ (переменная пуста)'}")
     batches = {}  # chat_id -> [тексты постов]
     for u in updates:
         state["offset"] = max(state.get("offset", 0), u["update_id"])
+        kinds = [k for k in u.keys() if k != "update_id"]
+        print(f"[дiag] update {u['update_id']}: тип {kinds}")
         if "callback_query" in u:
             cq = u["callback_query"]
+            print(f"[дiag]   callback от чата {mask(cq['message']['chat']['id'])}: {cq.get('data')}")
             if not ALLOWED or str(cq["message"]["chat"]["id"]) in ALLOWED:
                 handle_callback(cq)
             continue
         msg = u.get("message") or u.get("channel_post")
         if not msg:
+            print("[дiag]   не message/channel_post — пропуск")
             continue
         chat_id = msg["chat"]["id"]
         text = msg.get("text") or msg.get("caption") or ""
+        print(f"[дiag]   чат {mask(chat_id)}, текст: {len(text)} симв., фото: {bool(msg.get('photo'))}, переслано: {bool(msg.get('forward_origin') or msg.get('forward_from_chat'))}")
         if not ALLOWED:
             say(chat_id, f"Архив пока никому не доверен. Ваш chat id: {chat_id} — "
                          f"добавьте его в переменную TG_ALLOWED_IDS репозитория.")
             continue
         if str(chat_id) not in ALLOWED:
+            print(f"[дiag]   чат {mask(chat_id)} не в TG_ALLOWED_IDS — игнор")
             continue  # чужих молча игнорируем
         if text.strip():
+            print("[дiag]   → в пачку на разбор")
             batches.setdefault(chat_id, []).append(text.strip())
         elif msg.get("photo"):
             say(chat_id, "Изображения добавляются вручную через ✎ на сайте — "
