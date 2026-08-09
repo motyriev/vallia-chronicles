@@ -1,0 +1,45 @@
+name: Летописец
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: letopisec
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Обработка сообщений
+        env:
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          LETOPISEC_MODEL: ${{ vars.LETOPISEC_MODEL }}
+          TG_ALLOWED_IDS: ${{ vars.TG_ALLOWED_IDS }}
+          SITE_URL: ${{ vars.SITE_URL }}
+        run: python scripts/letopisec.py
+
+      - name: Коммит изменений
+        run: |
+          git config user.name "Летописец"
+          git config user.email "letopisec@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Изменений нет."
+            exit 0
+          fi
+          git commit -m "летописец: обновление архива"
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push
