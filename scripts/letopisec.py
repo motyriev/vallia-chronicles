@@ -276,7 +276,8 @@ def handle_posts(chat_id, texts, photos=0):
     if photos:
         text += f"\n\n※ В посте {photos} изображение(й) — я их не переношу, добавьте вручную через ✎ на сайте."
     if need:
-        text += "\n\n※ Вручную: " + "; ".join(o.get("reason", "") for o in need)
+        text += "\n\n✎ Доделать вручную на сайте (бот на это не отвечает):\n" + \
+                "\n".join("— " + o.get("reason", "") for o in need)
     say(chat_id, text, buttons=[[
         {"text": "✦ Опубликовать", "callback_data": "ok:" + pid},
         {"text": "Пропустить", "callback_data": "no:" + pid},
@@ -285,33 +286,43 @@ def handle_posts(chat_id, texts, photos=0):
 
 # ── обработка кнопок ────────────────────────────────────────────
 
+def finalize_card(cq, status):
+    """Убирает кнопки с исходной карточки и дописывает статус."""
+    m = cq.get("message") or {}
+    old_text = m.get("text") or ""
+    tg("editMessageText",
+       chat_id=m["chat"]["id"], message_id=m["message_id"],
+       text=(old_text + "\n\n" + status)[:4000],
+       reply_markup={"inline_keyboard": []})
+
+
 def handle_callback(cq):
     tg("answerCallbackQuery", callback_query_id=cq["id"])
     chat_id = cq["message"]["chat"]["id"]
     action, _, pid = (cq.get("data") or "").partition(":")
     path = os.path.join(PENDING_DIR, re.sub(r"[^0-9]", "", pid) + ".json")
     if not os.path.exists(path):
-        say(chat_id, "Эта карточка уже обработана.")
+        finalize_card(cq, "※ Уже обработано ранее.")
         return
     pending = json.load(open(path, encoding="utf-8"))
     if action == "no":
         os.remove(path)
-        say(chat_id, "✕ Пропущено — на сайт ничего не ушло.")
+        finalize_card(cq, "✕ Пропущено — на сайт ничего не ушло.")
         return
     if action != "ok":
         return
     html, data = read_archive()  # заодно обновляет SECTIONS из архива
     errs = validate(data["entries"], pending["operations"])
     if errs:
-        say(chat_id, "За время ожидания архив изменился, и правки перестали сходиться:\n" +
-            "\n".join(errs[:10]) + "\nВнесите этот пост вручную через ✎.")
+        finalize_card(cq, "※ Не опубликовано: архив изменился, правки перестали сходиться.")
+        say(chat_id, "Подробности:\n" + "\n".join(errs[:10]) + "\nВнесите этот пост вручную через ✎.")
         os.remove(path)
         return
     apply_ops(data, pending["operations"])
     write_archive(html, data)
     os.remove(path)
     link = (SITE_URL + "/") if SITE_URL else ""
-    say(chat_id, "✦ Опубликовано. Через минуту-две правки появятся на сайте. " + link)
+    finalize_card(cq, "✦ Опубликовано. Через минуту-две правки появятся на сайте. " + link)
 
 
 # ── главный цикл прогона ────────────────────────────────────────
