@@ -24,12 +24,10 @@ MODEL = os.environ.get("LETOPISEC_MODEL") or "anthropic/claude-sonnet-4.6"
 ALLOWED = {s.strip() for s in (os.environ.get("TG_ALLOWED_IDS") or "").split(",") if s.strip()}
 SITE_URL = (os.environ.get("SITE_URL") or "").rstrip("/")
 
-SECTIONS = {"factions", "characters", "orders", "locations", "heraldry", "chronicle"}
-SECTION_RU = {
-    "factions": "Государства и силы", "characters": "Персонажи",
-    "orders": "Ордена и подразделения", "locations": "Локации",
-    "heraldry": "Гербы", "chronicle": "Хроника",
-}
+# Разделы читаются из самого архива (index.html) — новые разделы
+# подхватываются без правок кода. Заполняется в read_archive().
+SECTIONS = set()
+SECTION_RU = {}
 PROMPT = open(os.path.join(HERE, "prompt.md"), encoding="utf-8").read()
 
 
@@ -54,6 +52,42 @@ def tg(method, **kw):
         return {"ok": False}
 
 
+def rich_extract(msg):
+    """Текст и число фото из rich_message (Bot API 10.1+).
+    Схема блоков может уточняться, поэтому обходим структуру целиком:
+    собираем строки из полей text/caption/title в порядке следования,
+    фото считаем по спискам PhotoSize."""
+    rm = msg.get("rich_message")
+    if not rm:
+        return "", 0
+    parts, photos = [], [0]
+
+    def walk(node):
+        if isinstance(node, dict):
+            if isinstance(node.get("photo"), list):
+                photos[0] += 1
+            for key in ("text", "caption", "title"):
+                v = node.get(key)
+                if isinstance(v, str) and v.strip():
+                    parts.append(v.strip())
+                elif isinstance(v, dict) and isinstance(v.get("text"), str) and v["text"].strip():
+                    parts.append(v["text"].strip())
+            for k, v in node.items():
+                if k not in ("text", "caption", "title", "entities"):
+                    walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v)
+
+    walk(rm)
+    # дедупликация соседних повторов (одна строка может встретиться и как блок, и как поле)
+    out = []
+    for p in parts:
+        if not out or out[-1] != p:
+            out.append(p)
+    return "\n\n".join(out), photos[0]
+
+
 def mask(x):
     s = str(x)
     return "…" + s[-4:] if len(s) > 4 else s
@@ -73,7 +107,13 @@ def read_archive():
     m = re.search(r'<script type="application/json" id="bestiary-data">([\s\S]*?)</script>', html)
     if not m:
         raise RuntimeError("index.html повреждён: нет блока bestiary-data")
-    return html, json.loads(m.group(1))
+    data = json.loads(m.group(1))
+    SECTIONS.clear()
+    SECTION_RU.clear()
+    for s in data.get("sections") or []:
+        SECTIONS.add(s["id"])
+        SECTION_RU[s["id"]] = s.get("title") or s["id"]
+    return html, data
 
 
 def write_archive(html, data):
@@ -197,11 +237,12 @@ def preview_ops(ops):
     return "\n".join(lines)
 
 
-def handle_posts(chat_id, texts):
-    print(f"[дiag] разбор пачки: {len(texts)} текст(а) для чата {mask(chat_id)}")
+def handle_posts(chat_id, texts, photos=0):
+    print(f"[дiag] разбор пачки: {len(texts)} текст(а) для чата {mask(chat_id)}, фото в постах: {photos}")
     _, data = read_archive()
     print(f"[дiag] архив прочитан: {len(data['entries'])} записей; зову OpenRouter ({MODEL})…")
-    registry = "\n".join(
+    sections_line = "; ".join(f"{sid} ({SECTION_RU[sid]})" for sid in SECTION_RU)
+    registry = "РАЗДЕЛЫ: " + sections_line + "\n" + "\n".join(
         f"{e['id']} | {e['section']} | {e['title']} | {e.get('years') or ''}"
         for e in data["entries"])
     posts = "\n\n---\n\n".join(texts)
@@ -232,6 +273,8 @@ def handle_posts(chat_id, texts):
         open(os.path.join(PENDING_DIR, pid + ".json"), "w", encoding="utf-8"),
         ensure_ascii=False, indent=1)
     text = "Разобрал ✦\n\n" + (resp.get("summary") or "") + "\n\n" + preview_ops(real)
+    if photos:
+        text += f"\n\n※ В посте {photos} изображение(й) — я их не переношу, добавьте вручную через ✎ на сайте."
     if need:
         text += "\n\n※ Вручную: " + "; ".join(o.get("reason", "") for o in need)
     say(chat_id, text, buttons=[[
@@ -257,7 +300,7 @@ def handle_callback(cq):
         return
     if action != "ok":
         return
-    html, data = read_archive()
+    html, data = read_archive()  # заодно обновляет SECTIONS из архива
     errs = validate(data["entries"], pending["operations"])
     if errs:
         say(chat_id, "За время ожидания архив изменился, и правки перестали сходиться:\n" +
@@ -286,6 +329,7 @@ def main():
 
     print(f"[дiag] получено обновлений: {len(updates)}; разрешённые чаты: {[mask(a) for a in ALLOWED] or 'ВСЕ (переменная пуста)'}")
     batches = {}  # chat_id -> [тексты постов]
+    photo_counts = {}  # chat_id -> сколько фото в рич-постах пачки
     for u in updates:
         state["offset"] = max(state.get("offset", 0), u["update_id"])
         kinds = [k for k in u.keys() if k != "update_id"]
@@ -302,7 +346,10 @@ def main():
             continue
         chat_id = msg["chat"]["id"]
         text = msg.get("text") or msg.get("caption") or ""
-        print(f"[дiag]   чат {mask(chat_id)}, текст: {len(text)} симв., фото: {bool(msg.get('photo'))}, переслано: {bool(msg.get('forward_origin') or msg.get('forward_from_chat'))}")
+        photos = 0
+        if not text.strip():
+            text, photos = rich_extract(msg)
+        print(f"[дiag]   чат {mask(chat_id)}, текст: {len(text)} симв. (rich: {bool(msg.get('rich_message'))}, фото в rich: {photos}), фото: {bool(msg.get('photo'))}, переслано: {bool(msg.get('forward_origin') or msg.get('forward_from_chat'))}")
         if not ALLOWED:
             say(chat_id, f"Архив пока никому не доверен. Ваш chat id: {chat_id} — "
                          f"добавьте его в переменную TG_ALLOWED_IDS репозитория.")
@@ -313,12 +360,19 @@ def main():
         if text.strip():
             print("[дiag]   → в пачку на разбор")
             batches.setdefault(chat_id, []).append(text.strip())
+            photo_counts[chat_id] = photo_counts.get(chat_id, 0) + photos
         elif msg.get("photo"):
             say(chat_id, "Изображения добавляются вручную через ✎ на сайте — "
                          "я работаю только с текстами.")
+        else:
+            kinds2 = [k for k in msg.keys() if k in
+                      ("video", "document", "sticker", "voice", "audio", "poll", "story", "rich_message")]
+            say(chat_id, "Не нашёл текста в этом сообщении"
+                + (f" (тип: {', '.join(kinds2)})" if kinds2 else "")
+                + ". Пересылайте текстовые посты — или напишите Артёму, если это выглядит как ошибка.")
 
     for chat_id, texts in batches.items():
-        handle_posts(chat_id, texts)
+        handle_posts(chat_id, texts, photo_counts.get(chat_id, 0))
 
     os.makedirs(os.path.dirname(STATE_PATH), exist_ok=True)
     json.dump(state, open(STATE_PATH, "w", encoding="utf-8"))
